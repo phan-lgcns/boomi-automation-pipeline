@@ -83,7 +83,6 @@ pipeline {
                                     ] 
 
                                 ], 
-
                                 validResponseCodes: '100:599', 
 
                                 consoleLogResponseBody: true 
