@@ -17,19 +17,20 @@ pipeline {
                         
                         echo "Found ${connectors.size()} connector(s) in configuration." 
                         
-                        connectors.each { connector -> 
+                        for (int i = 0; i < connectors.size(); i++) { 
+                            def connector = connectors[i]
                             echo "Installing connector: ${connector.id}" 
                             
                             def payload = [ 
-                                uri: connector.uri, 
-                                developerName: connector.developerName, 
-                                developerSummary: connector.developerSummary, 
-                                httpAuthenticationUsername: config.flowUsername, 
-                                httpAuthenticationPassword: config.flowPassword, 
+                                uri: connector.uri as String, 
+                                developerName: connector.developerName as String, 
+                                developerSummary: connector.developerSummary ? connector.developerSummary as String : null, 
+                                httpAuthenticationUsername: config.flowUsername as String, 
+                                httpAuthenticationPassword: config.flowPassword as String, 
                                 HttpAuthenticationClientCertificate: '', 
                                 HttpAuthenticationClientCertificatePassword: '', 
                                 configurationValues: [], 
-                                id: connector.id, 
+                                id: connector.id as String, 
                                 identityProviderId: null 
                             ] 
                             
@@ -42,7 +43,7 @@ pipeline {
                                 customHeaders: [ 
                                     [ 
                                         name: 'manywhotenant', 
-                                        value: config.tenantId 
+                                        value: config.tenantId as String 
                                     ], 
                                     [ 
                                         name: 'x-boomi-flow-api-key', 
