@@ -1,0 +1,253 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Validate Inputs') {
+            steps {
+                script {
+                    def config = readJSON file: 'config/config.json'
+                    
+                    env.BOOMI_ACCOUNT_ID = config.boomiAccountId ?: 'mizuhobankltd-ECNYC6'
+                    env.ENVIRONMENT_NAME = config.environmentName ?: 'MIZUHO_DEV_MCS'
+
+                    def rawComponentNames = params.COMPONENT_NAMES?.trim() ? params.COMPONENT_NAMES.trim() : (config.componentNames ? config.componentNames.join('\n') : '')
+                    def rawPackageVersion = params.PACKAGE_VERSION?.trim() ? params.PACKAGE_VERSION.trim() : (config.packageVersion ?: '')
+
+                    if (!rawComponentNames) {
+                        error "Component Names cannot be empty (provide via job parameter or config/config.json)!"
+                    }
+                    if (!rawPackageVersion) {
+                        error "Package Version cannot be empty (provide via job parameter or config/config.json)!"
+                    }
+
+                    env.RESOLVED_COMPONENT_NAMES = rawComponentNames
+                    env.RESOLVED_PACKAGE_VERSION = rawPackageVersion
+
+                    // Determine auth mode
+                    if (params.BOOMI_API_TOKEN?.trim()) {
+                        if (!params.BOOMI_TOKEN_EMAIL?.trim()) {
+                            error "BOOMI_TOKEN_EMAIL is required when using a Boomi API Token!"
+                        }
+                        env.AUTH_MODE = 'TOKEN'
+                        echo "Authentication: Using Boomi Platform API Token (BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()})"
+                    } else {
+                        env.AUTH_MODE = 'BASIC'
+                        echo "Authentication: Using Basic Auth from Jenkins Credentials"
+                    }
+
+                    echo "============================================"
+                    echo "DEPLOYMENT INPUTS"
+                    echo "============================================"
+                    echo "Components to deploy:"
+                    env.RESOLVED_COMPONENT_NAMES.split('\n').each { name ->
+                        echo "  - ${name.trim()}"
+                    }
+                    echo "Package Version : ${env.RESOLVED_PACKAGE_VERSION}"
+                    echo "Target Environment : ${env.ENVIRONMENT_NAME}"
+                    echo "Auth Mode : ${env.AUTH_MODE}"
+                    echo "============================================"
+                }
+            }
+        }
+
+        stage('Get Environment ID') {
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
+                ]) {
+                    script {
+                        String authHeader
+                        if (env.AUTH_MODE == 'TOKEN') {
+                            String tokenCredentials = "BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()}:${params.BOOMI_API_TOKEN.trim()}"
+                            String tokenEncoded = java.util.Base64.getEncoder().encodeToString(tokenCredentials.getBytes("UTF-8"))
+                            authHeader = "Basic ${tokenEncoded}"
+                        } else {
+                            String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
+                            String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
+                            authHeader = "Basic ${encoded}"
+                        }
+
+                        def response = httpRequest(
+                            url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/Environment/query",
+                            httpMode: 'POST',
+                            requestBody: '<QueryConfig xmlns="http://api.platform.boomi.com/"/>',
+                            customHeaders: [[
+                                name: 'Authorization',
+                                value: authHeader
+                            ],[
+                                name: 'Content-Type',
+                                value: 'application/xml'
+                            ],[
+                                name: 'Accept',
+                                value: 'application/json'
+                            ]]
+                        )
+
+                        def json = readJSON text: response.content
+                        def environment = json.result.find { it.name == env.ENVIRONMENT_NAME }
+
+                        if (!environment) {
+                            error "Environment '${env.ENVIRONMENT_NAME}' not found in Boomi!"
+                        }
+
+                        env.ENVIRONMENT_ID = environment.id.toString()
+                        echo "Environment '${env.ENVIRONMENT_NAME}' ID: ${env.ENVIRONMENT_ID}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Components') {
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
+                ]) {
+                    script {
+                        String authHeader
+                        if (env.AUTH_MODE == 'TOKEN') {
+                            String tokenCredentials = "BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()}:${params.BOOMI_API_TOKEN.trim()}"
+                            String tokenEncoded = java.util.Base64.getEncoder().encodeToString(tokenCredentials.getBytes("UTF-8"))
+                            authHeader = "Basic ${tokenEncoded}"
+                        } else {
+                            String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
+                            String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
+                            authHeader = "Basic ${encoded}"
+                        }
+
+                        String environmentId = env.ENVIRONMENT_ID.toString()
+                        echo "Using Environment ID: ${environmentId}"
+
+                        def componentNames = env.RESOLVED_COMPONENT_NAMES.split('\n')
+                        def deploymentResults = []
+
+                        componentNames.each { componentName ->
+                            componentName = componentName.trim()
+                            echo "============================================"
+                            echo "Processing: ${componentName}"
+                            echo "============================================"
+
+                            try {
+                                echo "Step 1: Searching package version ${env.RESOLVED_PACKAGE_VERSION}..."
+
+                                String searchBody = '{"QueryFilter":{"expression":{"operator":"EQUALS","property":"packageVersion","argument":["' + env.RESOLVED_PACKAGE_VERSION + '"]}}}'
+
+                                def packageResponse = httpRequest(
+                                    url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/PackagedComponent/query",
+                                    httpMode: 'POST',
+                                    requestBody: searchBody,
+                                    validResponseCodes: '100:599',
+                                    customHeaders: [[
+                                        name: 'Authorization',
+                                        value: authHeader
+                                    ],[
+                                        name: 'Content-Type',
+                                        value: 'application/json'
+                                    ],[
+                                        name: 'Accept',
+                                        value: 'application/json'
+                                    ]]
+                                )
+
+                                echo "Package Search Response Code: ${packageResponse.status}"
+
+                                if (packageResponse.status != 200) {
+                                    echo "Package search failed!"
+                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Package search failed: ${packageResponse.content}"]
+                                    return
+                                }
+
+                                def packageJson = readJSON text: packageResponse.content
+
+                                if (!packageJson.result || packageJson.result.size() == 0) {
+                                    echo "Package version '${env.RESOLVED_PACKAGE_VERSION}' NOT FOUND!"
+                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Package version not found"]
+                                    return
+                                }
+
+                                echo "Step 2: Matching process type package..."
+
+                                def matchedPackage = packageJson.result.find { pkg ->
+                                    pkg.componentType == 'process' && pkg.deleted == false
+                                }
+
+                                if (!matchedPackage) {
+                                    echo "No process type package found for version '${env.RESOLVED_PACKAGE_VERSION}'!"
+                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "No process package found"]
+                                    return
+                                }
+
+                                String packageId = matchedPackage.packageId.toString()
+                                String componentId = matchedPackage.componentId.toString()
+                                echo "Package found — packageId: ${packageId}"
+                                echo "Component ID: ${componentId}"
+
+                                echo "Step 3: Deploying to ${env.ENVIRONMENT_NAME}..."
+                                String deployBody = '{"@type":"DeployedPackage","packageId":"' + packageId + '","environmentId":"' + environmentId + '","notes":"Deployed via Jenkins - ' + componentName + '"}'
+
+                                def deployResponse = httpRequest(
+                                    url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/DeployedPackage",
+                                    httpMode: 'POST',
+                                    requestBody: deployBody,
+                                    validResponseCodes: '100:599',
+                                    customHeaders: [[
+                                        name: 'Authorization',
+                                        value: authHeader
+                                    ],[
+                                        name: 'Content-Type',
+                                        value: 'application/json'
+                                    ],[
+                                        name: 'Accept',
+                                        value: 'application/json'
+                                    ]]
+                                )
+
+                                echo "Deploy Response Code: ${deployResponse.status}"
+                                echo "Deploy Response: ${deployResponse.content}"
+
+                                if (deployResponse.status == 200 || deployResponse.status == 201) {
+                                    def deployJson = readJSON text: deployResponse.content
+                                    echo "Successfully deployed '${componentName}'!"
+                                    echo "Deployment ID: ${deployJson.deploymentId}"
+                                    deploymentResults << [name: componentName, status: 'SUCCESS', deploymentId: deployJson.deploymentId]
+                                } else {
+                                    echo "Deployment failed for '${componentName}'"
+                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Deploy failed: ${deployResponse.content}"]
+                                }
+
+                            } catch (Exception e) {
+                                echo "Failed to deploy '${componentName}': ${e.message}"
+                                deploymentResults << [name: componentName, status: 'FAILED', reason: e.message]
+                            }
+                        }
+
+                        echo "============================================"
+                        echo "DEPLOYMENT SUMMARY"
+                        echo "============================================"
+                        deploymentResults.each { result ->
+                            if (result.status == 'SUCCESS') {
+                                echo "${result.name} — DEPLOYED SUCCESSFULLY (ID: ${result.deploymentId})"
+                            } else {
+                                echo "${result.name} — FAILED: ${result.reason}"
+                            }
+                        }
+                        echo "============================================"
+
+                        def failures = deploymentResults.findAll { it.status == 'FAILED' }
+                        if (failures.size() > 0) {
+                            error "${failures.size()} component(s) failed to deploy!"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "All components deployed successfully to ${env.ENVIRONMENT_NAME}!"
+        }
+        failure {
+            echo "Deployment failed! Check the logs above for details."
+        }
+    }
+}
