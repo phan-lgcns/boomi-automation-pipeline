@@ -5,7 +5,7 @@ pipeline {
         stage('Validate Inputs') {
             steps {
                 script {
-                    def config = readJSON file: 'config/config.json'
+                    def config = readJSON file: 'config/config.integration.deployment.json'
                     
                     env.BOOMI_ACCOUNT_ID = config.boomiAccountId ?: 'mizuhobankltd-ECNYC6'
                     env.ENVIRONMENT_NAME = config.environmentName ?: 'MIZUHO_DEV_MCS'
@@ -13,13 +13,13 @@ pipeline {
                     def rawComponentNames = params.COMPONENT_NAMES?.trim() ? params.COMPONENT_NAMES.trim() : (config.componentNames ? config.componentNames.join('\n') : '')
                     def rawPackageVersion = params.PACKAGE_VERSION?.trim() ? params.PACKAGE_VERSION.trim() : (config.packageVersion ?: '')
 
-                    if (!rawComponentNames) {
-                        error "Component Names cannot be empty (provide via job parameter or config/config.json)!"
-                    }
-                    if (!rawPackageVersion) {
-                        error "Package Version cannot be empty (provide via job parameter or config/config.json)!"
+                    if (!rawComponentNames || !rawPackageVersion) {
+                        echo "⚠️ Missing parameters (COMPONENT_NAMES or PACKAGE_VERSION). Skipping integration deployment pipeline run."
+                        env.SKIP_DEPLOYMENT = 'true'
+                        return
                     }
 
+                    env.SKIP_DEPLOYMENT = 'false'
                     env.RESOLVED_COMPONENT_NAMES = rawComponentNames
                     env.RESOLVED_PACKAGE_VERSION = rawPackageVersion
 
@@ -51,6 +51,9 @@ pipeline {
         }
 
         stage('Get Environment ID') {
+            when {
+                environment name: 'SKIP_DEPLOYMENT', value: 'false'
+            }
             steps {
                 withCredentials([
                     usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
@@ -98,6 +101,9 @@ pipeline {
         }
 
         stage('Deploy Components') {
+            when {
+                environment name: 'SKIP_DEPLOYMENT', value: 'false'
+            }
             steps {
                 withCredentials([
                     usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
@@ -244,7 +250,11 @@ pipeline {
 
     post {
         success {
-            echo "All components deployed successfully to ${env.ENVIRONMENT_NAME}!"
+            if (env.SKIP_DEPLOYMENT == 'true') {
+                echo "Integration Deployment skipped due to empty parameters."
+            } else {
+                echo "All components deployed successfully to ${env.ENVIRONMENT_NAME}!"
+            }
         }
         failure {
             echo "Deployment failed! Check the logs above for details."

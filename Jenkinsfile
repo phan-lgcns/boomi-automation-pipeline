@@ -11,8 +11,8 @@ pipeline {
                     ) 
                 ]) {
                     script { 
-                        // Read configuration from the config folder
-                        def config = readJSON file: 'config/config.json'
+                        // Read configuration from config/config.connector.json
+                        def config = readJSON file: 'config/config.connector.json'
                         def connectors = config.connectors 
                         
                         echo "Found ${connectors.size()} connector(s) in configuration." 

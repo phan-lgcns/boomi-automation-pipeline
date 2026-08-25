@@ -8,13 +8,14 @@ pipeline {
                     string(credentialsId: 'boomi-flow-api-key', variable: 'FLOW_API_KEY')
                 ]) {
                     script {
-                        def config = readJSON file: 'config/config.json'
+                        def config = readJSON file: 'config/config.flow.publish.json'
                         def tenantId = config.tenantId as String
                         def flowBaseUrl = config.flowBaseUrl as String
                         def flowIds = params.FLOW_IDS ? params.FLOW_IDS.split('\n').collect { it.trim() }.findAll { it } : config.flowIds
 
                         if (!flowIds || flowIds.isEmpty()) {
-                            error("No Flow IDs provided in parameter or config/config.json.")
+                            echo "⚠️ No Flow IDs provided in build parameters or config/config.flow.publish.json. Skipping flow publish stage."
+                            return
                         }
 
                         def commonHeaders = [

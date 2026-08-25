@@ -3,13 +3,6 @@
   "flowBaseUrl": "https://us.flow-prod.boomi.com",
   "flowUsername": "mizuhobankltd-ECNYC6.V4O7OK",
   "flowPassword": "da028fc8-01a7-468e-b5ed-3d44438b50a8",
-  "flowIds": [
-    "43dedc28-aadc-44bc-a254-61402a2db5f7"
-  ],
-  "boomiAccountId": "mizuhobankltd-ECNYC6",
-  "environmentName": "MIZUHO_DEV_MCS",
-  "componentNames": [],
-  "packageVersion": "",
   "connectors": [
     {
       "id": "bbb6a4c7-c0a8-4323-a4ec-292001ed27fe",
