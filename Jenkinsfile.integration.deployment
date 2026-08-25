@@ -250,10 +250,12 @@ pipeline {
 
     post {
         success {
-            if (env.SKIP_DEPLOYMENT == 'true') {
-                echo "Integration Deployment skipped due to empty parameters."
-            } else {
-                echo "All components deployed successfully to ${env.ENVIRONMENT_NAME}!"
+            script {
+                if (env.SKIP_DEPLOYMENT == 'true') {
+                    echo "Integration Deployment skipped due to empty parameters."
+                } else {
+                    echo "All components deployed successfully to ${env.ENVIRONMENT_NAME}!"
+                }
             }
         }
         failure {
