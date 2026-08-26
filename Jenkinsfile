@@ -5,7 +5,7 @@ pipeline {
         stage('Validate Inputs') {
             steps {
                 script {
-                    def config = readJSON file: 'config/config.integration.deployment.json'
+                    def config = readJSON file: 'config/config.json'
                     
                     env.BOOMI_ACCOUNT_ID = config.boomiAccountId ?: 'mizuhobankltd-ECNYC6'
                     env.ENVIRONMENT_NAME = config.environmentName ?: 'MIZUHO_DEV_MCS'
