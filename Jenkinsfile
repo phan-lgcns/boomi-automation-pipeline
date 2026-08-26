@@ -8,7 +8,7 @@ pipeline {
                     string(credentialsId: 'boomi-flow-api-key', variable: 'FLOW_API_KEY')
                 ]) {
                     script {
-                        def config = readJSON file: 'config/config.flow.publish.json'
+                        def config = readJSON file: 'config/config.json'
                         def tenantId = config.tenantId as String
                         def flowBaseUrl = config.flowBaseUrl as String
                         def flowIds = params.FLOW_IDS ? params.FLOW_IDS.split('\n').collect { it.trim() }.findAll { it } : config.flowIds
