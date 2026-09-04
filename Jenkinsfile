@@ -10,7 +10,8 @@ pipeline {
                     env.BOOMI_ACCOUNT_ID = config.boomiAccountId ?: 'mizuhobankltd-ECNYC6'
                     env.ENVIRONMENT_NAME = config.environmentName ?: 'MIZUHO_DEV_MCS'
 
-                    def rawComponentNames = params.COMPONENT_NAMES?.trim() ? params.COMPONENT_NAMES.trim() : (config.componentNames ? config.componentNames.join('\n') : '')
+                    def configComponents = (config.componentNames instanceof List) ? config.componentNames.collect { it.toString() }.join('\n') : ''
+                    def rawComponentNames = params.COMPONENT_NAMES?.trim() ? params.COMPONENT_NAMES.trim() : configComponents
                     def rawPackageVersion = params.PACKAGE_VERSION?.trim() ? params.PACKAGE_VERSION.trim() : (config.packageVersion ?: '')
 
                     if (!rawComponentNames || !rawPackageVersion) {
