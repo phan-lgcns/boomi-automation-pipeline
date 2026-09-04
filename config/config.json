@@ -1,6 +1,6 @@
 {
   "boomiAccountId": "mizuhobankltd-ECNYC6",
   "environmentName": "MIZUHO_DEV_MCS",
-  "componentNames": [],
-  "packageVersion": ""
+  "componentNames": ["FSS - INT-FS-071- [FLOW>DB] - Simple Login"],
+  "packageVersion": "INT-FS-071_General_04Sep26_1"
 }
