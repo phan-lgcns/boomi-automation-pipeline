@@ -5,23 +5,64 @@ pipeline {
         stage('Validate Inputs') {
             steps {
                 script {
-                    def config = readJSON file: 'config/config.integration.deployment.json'
+                    def config = readJSON file: 'config/config.json'
                     
                     env.BOOMI_ACCOUNT_ID = config.boomiAccountId ?: 'mizuhobankltd-ECNYC6'
                     env.ENVIRONMENT_NAME = config.environmentName ?: 'MIZUHO_DEV_MCS'
 
-                    def rawComponentNames = params.COMPONENT_NAMES?.trim() ? params.COMPONENT_NAMES.trim() : (config.componentNames ? config.componentNames.join('\n') : '')
-                    def rawPackageVersion = params.PACKAGE_VERSION?.trim() ? params.PACKAGE_VERSION.trim() : (config.packageVersion ?: '')
+                    // Build list of package items
+                    def packageList = []
 
-                    if (!rawComponentNames || !rawPackageVersion) {
-                        echo "⚠️ Missing parameters (COMPONENT_NAMES or PACKAGE_VERSION). Skipping integration deployment pipeline run."
+                    // Option A: If triggered manually with Jenkins parameters COMPONENT_NAMES & PACKAGE_VERSION
+                    if (params.COMPONENT_NAMES?.trim() && params.PACKAGE_VERSION?.trim()) {
+                        def names = params.COMPONENT_NAMES.trim().split('\n').collect { it.trim() }.findAll { it }
+                        names.each { cName ->
+                            packageList << [
+                                componentName: cName,
+                                packageVersion: params.PACKAGE_VERSION.trim(),
+                                packageNote: null
+                            ]
+                        }
+                    }
+                    // Option B: Read packages list from config/config.json
+                    else if (config.packages instanceof List && !config.packages.isEmpty()) {
+                        config.packages.each { item ->
+                            if (item.packageVersion) {
+                                packageList << [
+                                    componentName: item.componentName ? item.componentName.toString().trim() : '',
+                                    packageVersion: item.packageVersion.toString().trim(),
+                                    packageNote: item.packageNote ? item.packageNote.toString().trim() : null
+                                ]
+                            }
+                        }
+                    }
+                    // Option C: Fallback to old single packageVersion / componentNames in config/config.json
+                    else if (config.packageVersion) {
+                        def cNames = (config.componentNames instanceof List) ? config.componentNames.collect { it.toString().trim() }.findAll { it } : []
+                        if (cNames.isEmpty()) {
+                            packageList << [
+                                componentName: '',
+                                packageVersion: config.packageVersion.toString().trim(),
+                                packageNote: config.packageNote ? config.packageNote.toString().trim() : null
+                            ]
+                        } else {
+                            cNames.each { cName ->
+                                packageList << [
+                                    componentName: cName,
+                                    packageVersion: config.packageVersion.toString().trim(),
+                                    packageNote: config.packageNote ? config.packageNote.toString().trim() : null
+                                ]
+                            }
+                        }
+                    }
+
+                    if (packageList.isEmpty()) {
+                        echo "⚠️ Missing package definitions (packages or packageVersion). Skipping integration deployment pipeline run."
                         env.SKIP_DEPLOYMENT = 'true'
                         return
                     }
 
                     env.SKIP_DEPLOYMENT = 'false'
-                    env.RESOLVED_COMPONENT_NAMES = rawComponentNames
-                    env.RESOLVED_PACKAGE_VERSION = rawPackageVersion
 
                     // Determine auth mode
                     if (params.BOOMI_API_TOKEN?.trim()) {
@@ -36,16 +77,18 @@ pipeline {
                     }
 
                     echo "============================================"
-                    echo "DEPLOYMENT INPUTS"
+                    echo "DEPLOYMENT INPUTS (${packageList.size()} package(s) to deploy)"
                     echo "============================================"
-                    echo "Components to deploy:"
-                    env.RESOLVED_COMPONENT_NAMES.split('\n').each { name ->
-                        echo "  - ${name.trim()}"
+                    packageList.eachWithIndex { item, idx ->
+                        def label = item.componentName ?: item.packageVersion
+                        echo " [${idx + 1}] Component: '${item.componentName}' | Version: '${item.packageVersion}' | Note: '${item.packageNote ?: ''}'"
                     }
-                    echo "Package Version : ${env.RESOLVED_PACKAGE_VERSION}"
                     echo "Target Environment : ${env.ENVIRONMENT_NAME}"
-                    echo "Auth Mode : ${env.AUTH_MODE}"
+                    echo "Auth Mode          : ${env.AUTH_MODE}"
                     echo "============================================"
+
+                    writeJSON file: 'tmp_packages.json', json: packageList
+                    env.PACKAGE_ITEMS_JSON = readFile('tmp_packages.json')
                 }
             }
         }
@@ -123,19 +166,34 @@ pipeline {
                         String environmentId = env.ENVIRONMENT_ID.toString()
                         echo "Using Environment ID: ${environmentId}"
 
-                        def componentNames = env.RESOLVED_COMPONENT_NAMES.split('\n')
+                        def packageItems = readJSON text: env.PACKAGE_ITEMS_JSON
                         def deploymentResults = []
 
-                        componentNames.each { componentName ->
-                            componentName = componentName.trim()
+                        packageItems.each { item ->
+                            def cName = (item.componentName != null && !(item.componentName instanceof net.sf.json.JSONNull)) ? item.componentName.toString().trim() : ''
+                            def pVersion = (item.packageVersion != null && !(item.packageVersion instanceof net.sf.json.JSONNull)) ? item.packageVersion.toString().trim() : ''
+                            def pNote = (item.packageNote != null && !(item.packageNote instanceof net.sf.json.JSONNull)) ? item.packageNote.toString().trim() : null
+
+                            // Determine deployment notes message
+                            String notesMessage
+                            if (pNote) {
+                                notesMessage = pNote
+                            } else if (cName) {
+                                notesMessage = "Deployed via Jenkins - ${cName}"
+                            } else {
+                                notesMessage = "Deployed via Jenkins"
+                            }
+
+                            def displayLabel = cName ?: pVersion
+
                             echo "============================================"
-                            echo "Processing: ${componentName}"
+                            echo "Processing Package: ${displayLabel} (${pVersion})"
                             echo "============================================"
 
                             try {
-                                echo "Step 1: Searching package version ${env.RESOLVED_PACKAGE_VERSION}..."
+                                echo "Step 1: Searching package version ${pVersion}..."
 
-                                String searchBody = '{"QueryFilter":{"expression":{"operator":"EQUALS","property":"packageVersion","argument":["' + env.RESOLVED_PACKAGE_VERSION + '"]}}}'
+                                String searchBody = '{"QueryFilter":{"expression":{"operator":"EQUALS","property":"packageVersion","argument":["' + pVersion + '"]}}}'
 
                                 def packageResponse = httpRequest(
                                     url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/PackagedComponent/query",
@@ -158,15 +216,15 @@ pipeline {
 
                                 if (packageResponse.status != 200) {
                                     echo "Package search failed!"
-                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Package search failed: ${packageResponse.content}"]
+                                    deploymentResults << [name: displayLabel, status: 'FAILED', reason: "Package search failed: ${packageResponse.content}"]
                                     return
                                 }
 
                                 def packageJson = readJSON text: packageResponse.content
 
                                 if (!packageJson.result || packageJson.result.size() == 0) {
-                                    echo "Package version '${env.RESOLVED_PACKAGE_VERSION}' NOT FOUND!"
-                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Package version not found"]
+                                    echo "Package version '${pVersion}' NOT FOUND!"
+                                    deploymentResults << [name: displayLabel, status: 'FAILED', reason: "Package version not found"]
                                     return
                                 }
 
@@ -177,8 +235,8 @@ pipeline {
                                 }
 
                                 if (!matchedPackage) {
-                                    echo "No process type package found for version '${env.RESOLVED_PACKAGE_VERSION}'!"
-                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "No process package found"]
+                                    echo "No process type package found for version '${pVersion}'!"
+                                    deploymentResults << [name: displayLabel, status: 'FAILED', reason: "No process package found"]
                                     return
                                 }
 
@@ -187,8 +245,8 @@ pipeline {
                                 echo "Package found — packageId: ${packageId}"
                                 echo "Component ID: ${componentId}"
 
-                                echo "Step 3: Deploying to ${env.ENVIRONMENT_NAME}..."
-                                String deployBody = '{"@type":"DeployedPackage","packageId":"' + packageId + '","environmentId":"' + environmentId + '","notes":"Deployed via Jenkins - ' + componentName + '"}'
+                                echo "Step 3: Deploying to ${env.ENVIRONMENT_NAME} with notes: '${notesMessage}'..."
+                                String deployBody = '{"@type":"DeployedPackage","packageId":"' + packageId + '","environmentId":"' + environmentId + '","notes":"' + notesMessage + '"}'
 
                                 def deployResponse = httpRequest(
                                     url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/DeployedPackage",
@@ -212,17 +270,17 @@ pipeline {
 
                                 if (deployResponse.status == 200 || deployResponse.status == 201) {
                                     def deployJson = readJSON text: deployResponse.content
-                                    echo "Successfully deployed '${componentName}'!"
+                                    echo "Successfully deployed '${displayLabel}'!"
                                     echo "Deployment ID: ${deployJson.deploymentId}"
-                                    deploymentResults << [name: componentName, status: 'SUCCESS', deploymentId: deployJson.deploymentId]
+                                    deploymentResults << [name: displayLabel, status: 'SUCCESS', deploymentId: deployJson.deploymentId]
                                 } else {
-                                    echo "Deployment failed for '${componentName}'"
-                                    deploymentResults << [name: componentName, status: 'FAILED', reason: "Deploy failed: ${deployResponse.content}"]
+                                    echo "Deployment failed for '${displayLabel}'"
+                                    deploymentResults << [name: displayLabel, status: 'FAILED', reason: "Deploy failed: ${deployResponse.content}"]
                                 }
 
                             } catch (Exception e) {
-                                echo "Failed to deploy '${componentName}': ${e.message}"
-                                deploymentResults << [name: componentName, status: 'FAILED', reason: e.message]
+                                echo "Failed to deploy '${displayLabel}': ${e.message}"
+                                deploymentResults << [name: displayLabel, status: 'FAILED', reason: e.message]
                             }
                         }
 
@@ -240,7 +298,7 @@ pipeline {
 
                         def failures = deploymentResults.findAll { it.status == 'FAILED' }
                         if (failures.size() > 0) {
-                            error "${failures.size()} component(s) failed to deploy!"
+                            error "${failures.size()} package(s) failed to deploy!"
                         }
                     }
                 }
