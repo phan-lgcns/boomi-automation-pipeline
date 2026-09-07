@@ -15,7 +15,7 @@
     {
       "$type": "oidc",
       "id": "b9acfc4d-c9b0-43d6-a827-55139d365fb8",
-      "developerName": "My providerx",
+      "developerName": "My providerxx",
       "developerSummary": "",
       "wellKnownUrl": "https://google.com",
       "clientId": "MyId",
