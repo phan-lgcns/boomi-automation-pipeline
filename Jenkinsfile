@@ -64,17 +64,7 @@ pipeline {
 
                     env.SKIP_DEPLOYMENT = 'false'
 
-                    // Determine auth mode
-                    if (params.BOOMI_API_TOKEN?.trim()) {
-                        if (!params.BOOMI_TOKEN_EMAIL?.trim()) {
-                            error "BOOMI_TOKEN_EMAIL is required when using a Boomi API Token!"
-                        }
-                        env.AUTH_MODE = 'TOKEN'
-                        echo "Authentication: Using Boomi Platform API Token (BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()})"
-                    } else {
-                        env.AUTH_MODE = 'BASIC'
-                        echo "Authentication: Using Basic Auth from Jenkins Credentials"
-                    }
+                    echo "Authentication: Using Boomi Integration API Key from Jenkins Credentials"
 
                     echo "============================================"
                     echo "DEPLOYMENT INPUTS (${packageList.size()} package(s) to deploy)"
@@ -84,7 +74,6 @@ pipeline {
                         echo " [${idx + 1}] Component: '${item.componentName}' | Version: '${item.packageVersion}' | Note: '${item.packageNote ?: ''}'"
                     }
                     echo "Target Environment : ${env.ENVIRONMENT_NAME}"
-                    echo "Auth Mode          : ${env.AUTH_MODE}"
                     echo "============================================"
 
                     writeJSON file: 'tmp_packages.json', json: packageList
@@ -99,19 +88,12 @@ pipeline {
             }
             steps {
                 withCredentials([
-                    usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
+                    usernamePassword(credentialsId: 'boomi-integration-api-key', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
                 ]) {
                     script {
-                        String authHeader
-                        if (env.AUTH_MODE == 'TOKEN') {
-                            String tokenCredentials = "BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()}:${params.BOOMI_API_TOKEN.trim()}"
-                            String tokenEncoded = java.util.Base64.getEncoder().encodeToString(tokenCredentials.getBytes("UTF-8"))
-                            authHeader = "Basic ${tokenEncoded}"
-                        } else {
-                            String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
-                            String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
-                            authHeader = "Basic ${encoded}"
-                        }
+                        String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
+                        String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
+                        String authHeader = "Basic ${encoded}"
 
                         def response = httpRequest(
                             url: "https://api.boomi.com/api/rest/v1/${env.BOOMI_ACCOUNT_ID}/Environment/query",
@@ -149,19 +131,12 @@ pipeline {
             }
             steps {
                 withCredentials([
-                    usernamePassword(credentialsId: 'boomi-platform-credentials', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
+                    usernamePassword(credentialsId: 'boomi-integration-api-key', usernameVariable: 'BOOMI_USERNAME', passwordVariable: 'BOOMI_PASSWORD')
                 ]) {
                     script {
-                        String authHeader
-                        if (env.AUTH_MODE == 'TOKEN') {
-                            String tokenCredentials = "BOOMI_TOKEN.${params.BOOMI_TOKEN_EMAIL.trim()}:${params.BOOMI_API_TOKEN.trim()}"
-                            String tokenEncoded = java.util.Base64.getEncoder().encodeToString(tokenCredentials.getBytes("UTF-8"))
-                            authHeader = "Basic ${tokenEncoded}"
-                        } else {
-                            String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
-                            String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
-                            authHeader = "Basic ${encoded}"
-                        }
+                        String credentials = "${BOOMI_USERNAME}:${BOOMI_PASSWORD}"
+                        String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes("UTF-8"))
+                        String authHeader = "Basic ${encoded}"
 
                         String environmentId = env.ENVIRONMENT_ID.toString()
                         echo "Using Environment ID: ${environmentId}"
