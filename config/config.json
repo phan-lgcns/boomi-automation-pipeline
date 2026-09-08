@@ -4,7 +4,7 @@
   "packages": [
     {
       "componentName": "FSS - INT-FS-071- [FLOW>DB] - Simple Login test",
-      "packageVersion": "INT-FS-071_General_07Sep26_1",
+      "packageVersion": "INT-FS-071_General_08Sep26_1",
       "packageNote": "Deploy test"
     }
   ]
