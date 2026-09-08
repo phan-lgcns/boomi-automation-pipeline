@@ -100,7 +100,7 @@ pipeline {
                         } else if (!secretStr.contains(':')) {
                             error("The boomi-integration-api-key secret must be in the format 'BOOMI_TOKEN.email:token' or 'username:password', or you must provide 'boomiTokenEmail' in config.json.")
                         }
-                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.getBytes("UTF-8"))
+                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.toString().getBytes("UTF-8"))
                         String authHeader = "Basic ${encoded}"
 
                         def response = httpRequest(
@@ -149,7 +149,7 @@ pipeline {
                         } else if (!secretStr.contains(':')) {
                             error("The boomi-integration-api-key secret must be in the format 'BOOMI_TOKEN.email:token' or 'username:password', or you must provide 'boomiTokenEmail' in config.json.")
                         }
-                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.getBytes("UTF-8"))
+                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.toString().getBytes("UTF-8"))
                         String authHeader = "Basic ${encoded}"
 
                         String environmentId = env.ENVIRONMENT_ID.toString()
