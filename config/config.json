@@ -1,6 +1,7 @@
 {
   "boomiAccountId": "mizuhobankltd-ECNYC6",
   "environmentName": "MIZUHO_DEV_MCS",
+  "boomiTokenEmail": "tphanhehe@lgcns.com",
   "packages": [
     {
       "componentName": "FSS - INT-FS-071- [FLOW>DB] - Simple Login test",
