@@ -92,7 +92,11 @@ pipeline {
                 ]) {
                     script {
                         // Assuming the Secret text contains the full "username:password" or "BOOMI_TOKEN.email:token" string
-                        String encoded = java.util.Base64.getEncoder().encodeToString(BOOMI_AUTH_SECRET.getBytes("UTF-8"))
+                        def secretStr = BOOMI_AUTH_SECRET.trim()
+                        if (!secretStr.contains(':')) {
+                            error("The boomi-integration-api-key secret must be in the format 'BOOMI_TOKEN.email:token' or 'username:password'.")
+                        }
+                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.getBytes("UTF-8"))
                         String authHeader = "Basic ${encoded}"
 
                         def response = httpRequest(
@@ -135,7 +139,11 @@ pipeline {
                 ]) {
                     script {
                         // Assuming the Secret text contains the full "username:password" or "BOOMI_TOKEN.email:token" string
-                        String encoded = java.util.Base64.getEncoder().encodeToString(BOOMI_AUTH_SECRET.getBytes("UTF-8"))
+                        def secretStr = BOOMI_AUTH_SECRET.trim()
+                        if (!secretStr.contains(':')) {
+                            error("The boomi-integration-api-key secret must be in the format 'BOOMI_TOKEN.email:token' or 'username:password'.")
+                        }
+                        String encoded = java.util.Base64.getEncoder().encodeToString(secretStr.getBytes("UTF-8"))
                         String authHeader = "Basic ${encoded}"
 
                         String environmentId = env.ENVIRONMENT_ID.toString()
